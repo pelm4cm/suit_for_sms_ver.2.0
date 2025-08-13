@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Коды из Банков</title>
+    <!-- Ссылка на статический CSS-файл -->
+    <link href="{{ url_for('static', path='/css/style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <h1>Последние СМС</h1>
+        <table class="sms-table">
+            <thead>
+                <tr>
+                    <th>Время (UTC)</th>
+                    <th>Отправитель</th>
+                    <th>Текст сообщения</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for sms in sms_messages %}
+                <tr>
+                    <td class="timestamp">{{ sms.received_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                    <td class="sender">{{ sms.sender }}</td>
+                    <td class="text">{{ sms.text }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="3" style="text-align: center;">Сообщений пока нет.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
+        
+        function connect() {
+            const websocket = new WebSocket(wsUrl);
+
+            websocket.onopen = function(event) {
+                console.log("WebSocket соединение установлено.");
+            };
+
+            websocket.onmessage = function(event) {
+                console.log("Получено сообщение от сервера:", event.data);
+                const tableBody = document.querySelector(".sms-table tbody");
+                
+                // Удаляем сообщение "Сообщений пока нет", если оно есть
+                const noMessagesRow = tableBody.querySelector('td[colspan="3"]');
+                if (noMessagesRow) {
+                    noMessagesRow.parentElement.remove();
+                }
+                
+                // Вставляем новую строку с СМС в начало таблицы
+                tableBody.insertAdjacentHTML('afterbegin', event.data);
+            };
+
+            websocket.onclose = function(event) {
+                console.log("WebSocket соединение закрыто. Попытка переподключения через 3 секунды.");
+                setTimeout(connect, 3000); // Повторное подключение
+            };
+
+            websocket.onerror = function(error) {
+                console.error("Ошибка WebSocket:", error);
+                websocket.close(); // Закрываем, чтобы onclose инициировал переподключение
+            };
+        }
+        
+        connect(); // Запускаем первое подключение
+    });
+</script>
+</body>
+</html>
