@@ -47,17 +47,33 @@
             };
 
             websocket.onmessage = function(event) {
-                console.log("Получено сообщение от сервера:", event.data);
                 const tableBody = document.querySelector(".sms-table tbody");
-                
-                // Удаляем сообщение "Сообщений пока нет", если оно есть
-                const noMessagesRow = tableBody.querySelector('td[colspan="3"]');
-                if (noMessagesRow) {
-                    noMessagesRow.parentElement.remove();
+                try {
+                    const data = JSON.parse(event.data);
+                    const tr = document.createElement('tr');
+                    const tdTime = document.createElement('td');
+                    tdTime.className = 'timestamp';
+                    tdTime.textContent = data.received_at;
+                    const tdSender = document.createElement('td');
+                    tdSender.className = 'sender';
+                    tdSender.textContent = data.sender;
+                    const tdText = document.createElement('td');
+                    tdText.className = 'text';
+                    tdText.textContent = data.text;
+
+                    tr.appendChild(tdTime);
+                    tr.appendChild(tdSender);
+                    tr.appendChild(tdText);
+
+                    const noMessagesRow = tableBody.querySelector('td[colspan="3"]');
+                    if (noMessagesRow) {
+                        noMessagesRow.parentElement.remove();
+                    }
+
+                    tableBody.insertBefore(tr, tableBody.firstChild);
+                } catch (e) {
+                    console.error('Invalid message format', e);
                 }
-                
-                // Вставляем новую строку с СМС в начало таблицы
-                tableBody.insertAdjacentHTML('afterbegin', event.data);
             };
 
             websocket.onclose = function(event) {

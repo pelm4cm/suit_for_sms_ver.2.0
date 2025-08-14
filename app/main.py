@@ -1,12 +1,13 @@
 import asyncio
+import json
 from fastapi import (
     FastAPI, Request, Depends, HTTPException, status, Header, WebSocket, WebSocketDisconnect
 )
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy.future import select
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from contextlib import asynccontextmanager
 from typing import List
 
@@ -26,9 +27,18 @@ class ConnectionManager:
         self.active_connections.remove(websocket)
 
     async def broadcast_html(self, html: str):
-        # Отправляем HTML всем подключенным клиентам
-        for connection in self.active_connections:
-            await connection.send_text(html)
+        # Отправляем HTML всем подключенным клиентам, удаляя мёртвые соединения
+        disconnected: List[WebSocket] = []
+        for connection in list(self.active_connections):
+            try:
+                await connection.send_text(html)
+            except Exception:
+                disconnected.append(connection)
+        for ws in disconnected:
+            try:
+                self.disconnect(ws)
+            except Exception:
+                pass
 
 manager = ConnectionManager()
 
@@ -78,32 +88,35 @@ async def verify_api_key(x_api_key: str = Header()):
         )
 
 @app.post("/api/sms", status_code=status.HTTP_201_CREATED, dependencies=[Depends(verify_api_key)])
-async def create_sms(sms: schemas.SMSCreate, db: Session = Depends(get_db)):
+async def create_sms(sms: schemas.SMSCreate, db: AsyncSession = Depends(get_db)):
     # 1. Сохраняем SMS в базу
     db_sms = models.SMS(sender=sms.sender, text=sms.text)
     db.add(db_sms)
     await db.commit()
     await db.refresh(db_sms)
 
-    # 2. Формируем HTML-строку для новой записи в таблице
-    new_sms_html = (
-        f"<tr>"
-        f"<td class='timestamp'>{db_sms.received_at.strftime('%Y-%m-%d %H:%M:%S')}</td>"
-        f"<td class='sender'>{db_sms.sender}</td>"
-        f"<td class='text'>{db_sms.text}</td>"
-        f"</tr>"
-    )
+    # 2. Готовим безопасный JSON для фронтенда
+    payload = {
+        "received_at": db_sms.received_at.strftime('%Y-%m-%d %H:%M:%S'),
+        "sender": db_sms.sender,
+        "text": db_sms.text,
+    }
 
-    # 3. Отправляем этот HTML всем подключенным клиентам
-    await manager.broadcast_html(new_sms_html)
+    # 3. Отправляем JSON всем подключенным клиентам
+    await manager.broadcast_html(json.dumps(payload))
 
     return {"status": "ok", "sms_id": db_sms.id}
 
 # --- Веб-интерфейс ---
 @app.get("/", response_class=HTMLResponse)
-async def read_sms_list(request: Request, db: Session = Depends(get_db)):
+async def read_sms_list(request: Request, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(models.SMS).order_by(models.SMS.received_at.desc()).limit(100))
     sms_messages = result.scalars().all()
     return templates.TemplateResponse(
         "index.html", {"request": request, "sms_messages": sms_messages}
     )
+
+# --- Healthcheck ---
+@app.get("/health")
+async def healthcheck():
+    return {"status": "ok"}
