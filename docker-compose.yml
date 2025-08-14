@@ -1,13 +1,13 @@
-version: "3.9"
 services:
   app:
     build: .
     container_name: sms_app
     environment:
       - API_KEY=${API_KEY}
-      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///sms_database.db}
+      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:////data/sms_database.db}
     volumes:
       - ./:/app
+      - app_data:/data
     expose:
       - "8000"
 
@@ -20,3 +20,6 @@ services:
       - "8080:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+volumes:
+  app_data:
