@@ -38,12 +38,14 @@ class ConnectionManager:
         for connection in list(self.active_connections):
             try:
                 await connection.send_text(html)
-            except Exception:
+            except Exception as e: # Добавляем e для вывода ошибки
+                print(f"Ошибка при отправке WebSocket сообщения: {e}") # Логируем ошибку
                 disconnected.append(connection)
         for ws in disconnected:
             try:
                 self.disconnect(ws)
-            except Exception:
+            except Exception as e: # Добавляем e для вывода ошибки
+                print(f"Ошибка при отключении WebSocket: {e}") # Логируем ошибку
                 pass
 
 manager = ConnectionManager()
@@ -123,14 +125,16 @@ async def verify_api_key(x_api_key: str = Header()):
 
 @app.post("/api/sms", status_code=status.HTTP_201_CREATED, dependencies=[Depends(verify_api_key)])
 async def create_sms(sms: schemas.SMSCreate, db: AsyncSession = Depends(get_db)):
+    print(f"Получено новое SMS: Отправитель={sms.sender}, Текст={sms.text}") # Логирование получения SMS
     # 1. Сохраняем SMS в базу
     db_sms = models.SMS(sender=sms.sender, text=sms.text)
     db.add(db_sms)
     await db.commit()
     await db.refresh(db_sms)
+    print(f"SMS сохранено в БД с ID: {db_sms.id}") # Логирование сохранения в БД
 
     # 2. Готовим безопасный JSON для фронтенда
-    ekb_tz = pytz.timezone('Europe/Ekaterinburg') # Определяем часовой пояс
+    ekb_tz = pytz.timezone('Asia/Yekaterinburg') # Определяем часовой пояс
     # Преобразуем UTC время в заданный часовой пояс
     localized_time = db_sms.received_at.astimezone(ekb_tz)
 
@@ -139,9 +143,11 @@ async def create_sms(sms: schemas.SMSCreate, db: AsyncSession = Depends(get_db))
         "sender": db_sms.sender,
         "text": db_sms.text,
     }
+    print(f"Подготовлен payload для WebSocket: {payload}") # Логирование payload
 
     # 3. Отправляем JSON всем подключенным клиентам
     await manager.broadcast_html(json.dumps(payload))
+    print("Вызов broadcast_html завершен.") # Логирование вызова broadcast_html
 
     return {"status": "ok", "sms_id": db_sms.id}
 
@@ -152,7 +158,7 @@ async def read_sms_list(request: Request, db: AsyncSession = Depends(get_db)):
     sms_messages = result.scalars().all()
 
     # Преобразуем время для каждого SMS в нужный часовой пояс перед передачей в шаблон
-    ekb_tz = pytz.timezone('Europe/Ekaterinburg')
+    ekb_tz = pytz.timezone('Asia/Yekaterinburg')
     for sms in sms_messages:
         # Убедимся, что время в UTC, если оно не tz-aware, иначе astimezone может сработать некорректно
         if sms.received_at.tzinfo is None or sms.received_at.tzinfo.utcoffset(sms.received_at) is None:
